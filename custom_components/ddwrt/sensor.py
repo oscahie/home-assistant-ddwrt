@@ -77,10 +77,9 @@ class DdwrtSensor(Entity):
         """Return the device info."""
         result = {
             "identifiers": {(DOMAIN, self._host)},
-            ATTR_FRIENDLY_NAME: self._friendly_name,
             "manufacturer": self._api.results["router_manufacturer"],
             "model": self._api.results["router_model"],
-            ATTR_NAME: self._routername,
+            "name": self._routername,
             "sw_version": self._sw_version,
             "via_device": (DOMAIN),
         }
