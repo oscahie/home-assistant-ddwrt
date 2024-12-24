@@ -9,7 +9,7 @@ Open a shell and go to your Home Assistant config path, and do:
 ```
 mkdir custom_components
 cd custom_components
-git clone https://github.com/eelcohn/home-assistant-ddwrt ddwrt
+git clone https://github.com/kimballen/home-assistant-ddwrt ddwrt
 ```
 
 ### Setup and configuration
