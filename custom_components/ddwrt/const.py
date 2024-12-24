@@ -1,23 +1,18 @@
 from datetime import timedelta
 
-from homeassistant.components.binary_sensor import (
-    DEVICE_CLASS_CONNECTIVITY,
-)
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_ICON,
     ATTR_NAME,
     ATTR_UNIT_OF_MEASUREMENT,
-    DATA_KILOBYTES,
-    DATA_MEGABYTES,
-    DATA_RATE_MEGABITS_PER_SECOND,
-    DEVICE_CLASS_SIGNAL_STRENGTH,
-    DEVICE_CLASS_TEMPERATURE,
-    LENGTH_METERS,
-    TEMP_CELSIUS,
-    TIME_MICROSECONDS,
-    TIME_MINUTES,
-    ELECTRIC_POTENTIAL_VOLT,
+    UnitOfDataRate,
+    UnitOfElectricPotential,
+    UnitOfInformation,
+    UnitOfLength,
+    UnitOfTemperature,
+    UnitOfTime,
 )
 
 _VERSION = "1.1.4"
@@ -95,14 +90,14 @@ BINARY_SENSORS = {
         ATTR_UNIT_OF_MEASUREMENT: None,
         ATTR_ICON: "mdi:wan",
         ATTR_ICON_OFF: "mdi:alert-circle-outline",
-        ATTR_DEVICE_CLASS: DEVICE_CLASS_CONNECTIVITY,
+        ATTR_DEVICE_CLASS: BinarySensorDeviceClass.CONNECTIVITY,
     },
     "wl_radio": {
         ATTR_NAME: "WiFi radio",
         ATTR_UNIT_OF_MEASUREMENT: None,
         ATTR_ICON: "mdi:wifi",
         ATTR_ICON_OFF: "mdi:wifi-off",
-        ATTR_DEVICE_CLASS: DEVICE_CLASS_CONNECTIVITY,
+        ATTR_DEVICE_CLASS: BinarySensorDeviceClass.CONNECTIVITY,
     },
 }
 
@@ -157,9 +152,9 @@ SENSORS = {
     },
     "cpu_temp": {
         ATTR_NAME: "Temperature",
-        ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfTemperature.CELSIUS,
         ATTR_ICON: "mdi:thermometer",
-        ATTR_DEVICE_CLASS: DEVICE_CLASS_TEMPERATURE,
+        ATTR_DEVICE_CLASS: SensorDeviceClass.TEMPERATURE,
     },
     "ddns_status": {
         ATTR_NAME: "DDNS status",
@@ -205,7 +200,7 @@ SENSORS = {
     },
     "lan_dhcp_lease_time": {
         ATTR_NAME: "LAN DHCP lease time",
-        ATTR_UNIT_OF_MEASUREMENT: TIME_MINUTES,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfTime.MINUTES,
         ATTR_ICON: "mdi:ip-network",
         ATTR_DEVICE_CLASS: None,
     },
@@ -271,13 +266,13 @@ SENSORS = {
     },
     "nvram_used": {
         ATTR_NAME: "NVRAM Used",
-        ATTR_UNIT_OF_MEASUREMENT: DATA_KILOBYTES,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfInformation.KILOBYTES,
         ATTR_ICON: "mdi:memory",
         ATTR_DEVICE_CLASS: None,
     },
     "nvram_total": {
         ATTR_NAME: "NVRAM Total",
-        ATTR_UNIT_OF_MEASUREMENT: DATA_KILOBYTES,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfInformation.KILOBYTES,
         ATTR_ICON: "mdi:memory",
         ATTR_DEVICE_CLASS: None,
     },
@@ -307,7 +302,7 @@ SENSORS = {
     },
     "voltage": {
         ATTR_NAME: "Voltage",
-        ATTR_UNIT_OF_MEASUREMENT: ELECTRIC_POTENTIAL_VOLT,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfElectricPotential.VOLT,
         ATTR_ICON: "mdi:current-dc",
         ATTR_DEVICE_CLASS: None,
     },
@@ -315,7 +310,7 @@ SENSORS = {
         ATTR_NAME: "WAN 3G signal strength",
         ATTR_UNIT_OF_MEASUREMENT: DECIBEL_MILLIWATTS,
         ATTR_ICON: "mdi:signal-3g",
-        ATTR_DEVICE_CLASS: DEVICE_CLASS_SIGNAL_STRENGTH,
+        ATTR_DEVICE_CLASS: SensorDeviceClass.SIGNAL_STRENGTH,
     },
     "wan_dhcp_remaining": {
         ATTR_NAME: "WAN DHCP remaining",
@@ -403,13 +398,13 @@ SENSORS = {
     },
     "wan_traffic_in": {
         ATTR_NAME: "WAN traffic inbound",
-        ATTR_UNIT_OF_MEASUREMENT: DATA_MEGABYTES,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfInformation.MEGABYTES,
         ATTR_ICON: "mdi:download",
         ATTR_DEVICE_CLASS: None,
     },
     "wan_traffic_out": {
         ATTR_NAME: "WAN traffic outbound",
-        ATTR_UNIT_OF_MEASUREMENT: DATA_MEGABYTES,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfInformation.MEGABYTES,
         ATTR_ICON: "mdi:upload",
         ATTR_DEVICE_CLASS: None,
     },
@@ -421,13 +416,13 @@ SENSORS = {
     },
     "wl_ack_timing": {
         ATTR_NAME: "Wireless ACK timing",
-        ATTR_UNIT_OF_MEASUREMENT: TIME_MICROSECONDS,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfTime.MICROSECONDS,
         ATTR_ICON: "mdi:wifi",
         ATTR_DEVICE_CLASS: None,
     },
     "wl_ack_distance": {
         ATTR_NAME: "Wireless ACK distance",
-        ATTR_UNIT_OF_MEASUREMENT: LENGTH_METERS,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfLength.METERS,
         ATTR_ICON: "mdi:wifi",
         ATTR_DEVICE_CLASS: None,
     },
@@ -469,7 +464,7 @@ SENSORS = {
     },
     "wl_rate": {
         ATTR_NAME: "Wireless rate",
-        ATTR_UNIT_OF_MEASUREMENT: DATA_RATE_MEGABITS_PER_SECOND,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfDataRate.MEGABITS_PER_SECOND,
         ATTR_ICON: "mdi:wifi",
         ATTR_DEVICE_CLASS: None,
     },
