@@ -1,3 +1,6 @@
+######      This is just a quickly updated version to be able to run it on Home Assistant 2024.12.5
+--------------------------------------------------------------------------------------
+
 # home-assistant-ddwrt
 Support for DD-WRT routers in Home Assistant.
 
