@@ -74,7 +74,6 @@ class DdwrtBinarySensor(BinarySensorEntity):
     def device_info(self):
         """Return the device info."""
         result = {
-            ATTR_FRIENDLY_NAME: self._friendly_name,
             "identifiers": {(DOMAIN, self._host)},
             "manufacturer": self._api.results["router_manufacturer"],
             "model": self._api.results["router_model"],
