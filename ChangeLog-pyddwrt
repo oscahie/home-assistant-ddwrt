@@ -1,3 +1,7 @@
+v1.0.X
+* just updated to get the integration working on Home Assistant 2024.12.5
+
+
 v0.9.4:
 * Fixed correctly processing wl_ack when it's set to N/A
 
