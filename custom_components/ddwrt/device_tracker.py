@@ -4,13 +4,12 @@ from datetime import datetime
 import logging
 from typing import Dict
 
-from homeassistant.components.device_tracker import SOURCE_TYPE_ROUTER
+from homeassistant.components.device_tracker import SourceType
 from homeassistant.components.device_tracker.config_entry import ScannerEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import callback
+from homeassistant.core import callback, HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.typing import HomeAssistantType
 
 from . import (
     ATTR_ATTRIBUTION,
@@ -118,14 +117,13 @@ class DdwrtDevice(ScannerEntity):
         """Return the device info."""
         result = {
             "connections": {(CONNECTION_NETWORK_MAC, self._mac)},
-            ATTR_FRIENDLY_NAME: self._friendly_name,
             "identifiers": {(DOMAIN, self.unique_id)},
             "manufacturer": self._manufacturer,
             "model": self._model,
             "name": self._friendly_name,
             "via_device": (DOMAIN),
         }
-        _LOGGER.debug("DdwrtSensor::device_info result=%s", result)
+        _LOGGER.debug("DdwrtDevice::device_info result=%s", result)
         return result
 
     @property
@@ -158,7 +156,7 @@ class DdwrtDevice(ScannerEntity):
 
         _LOGGER.debug("DdwrtDevice::source_type mac=%s", self._mac)
 
-        return SOURCE_TYPE_ROUTER
+        return SourceType.ROUTER
 
     @property
     def icon(self) -> str:
