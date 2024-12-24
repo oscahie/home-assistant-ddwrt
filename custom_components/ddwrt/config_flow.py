@@ -248,18 +248,15 @@ class DDWRTFlowHandler(config_entries.ConfigFlow):
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle a option flow for dd-wrt."""
+    """Handle an option flow for dd-wrt."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry):
         """Initialize options flow."""
-
         _LOGGER.debug("OptionsFlowHandler::__init__ called. config_entry.options=%s data=%s", config_entry.options, config_entry.data)
-
         self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Handle options flow."""
-
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
@@ -267,15 +264,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             {
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
-                    default=self.config_entry.data.get(
+                    default=self.config_entry.options.get(
                         CONF_SCAN_INTERVAL,
                         SCAN_INTERVAL_DATA,
                     ),
-#                ): int,
                 ): cv.time_period,
-#                _resource_schema_base(
-#                    self.config_entry.data['resources']
-#                )
             }
         )
 
