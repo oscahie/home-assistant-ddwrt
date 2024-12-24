@@ -79,14 +79,13 @@ class DdwrtCamera(Camera):
     def device_info(self):
         """Return the device info."""
         result = {
-            ATTR_FRIENDLY_NAME: self._friendly_name,
             "identifiers": {(DOMAIN, self._host.lower())},
             "manufacturer": self._api.results["router_manufacturer"],
             "model": self._api.results["router_model"],
             ATTR_NAME: self._routername,
             "via_device": (DOMAIN),
         }
-        _LOGGER.debug("DdwrtBinarySensor::device_info result=%s", result)
+        _LOGGER.debug("DdwrtCamera::device_info result=%s", result)
         return result
 
     @property
