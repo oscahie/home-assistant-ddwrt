@@ -1,6 +1,7 @@
 """Support for DD-WRT devices."""
 
 from functools import partial
+import asyncio  # Add this import
 import logging
 import voluptuous as vol
 from datetime import (
@@ -21,13 +22,14 @@ from homeassistant.const import (
     CONF_VERIFY_SSL,
     CONF_RESOURCES,
 )
-from homeassistant.config_entries import SOURCE_IMPORT
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntryNotReady  # Add ConfigEntryNotReady
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.util import Throttle
 
 from .const import (
@@ -54,7 +56,7 @@ from .const import (
     DEFAULT_VERIFY_SSL,
     DEFAULT_WIRELESS_ONLY,
     DEVICE_TRACKERS,
-    DEVICE_TRACKER_DEFAULTS,
+    DEVICE_TRACKER_DEFAULTS,  # Fix: Remove the 's' from DEFAULTs
     DOMAIN,
     MIN_SCAN_INTERVAL,
     RESOURCES,
@@ -178,7 +180,8 @@ async def async_setup_entry(hass, config_entry):
 
     for service in SERVICES:
         _LOGGER.debug("__init__::async_setup_entry registering service %s", service)
-        hass.helpers.service.async_register_admin_service(
+        async_register_admin_service(
+            hass,
             DOMAIN,
             service,
             service_handler,
@@ -186,10 +189,26 @@ async def async_setup_entry(hass, config_entry):
         )
 
     router = DDWrtEntity(hass, config_entry)
-    if not await router.async_update_about_data():
-        raise PlatformNotReady
-    if not await router.async_update_sensor_data():
-        raise PlatformNotReady
+    try:
+        about_data = await router.async_update_about_data()
+        if not about_data:
+            _LOGGER.error("Failed to get router information")
+            return False
+
+        # Add delay before next request
+        await asyncio.sleep(1)
+            
+        sensor_data = await router.async_update_sensor_data()
+        if not sensor_data:
+            _LOGGER.error("Failed to get sensor data")
+            return False
+
+    except DDWrt.ExceptionConnectionError as ex:
+        _LOGGER.error("Could not connect to router: %s", ex)
+        raise ConfigEntryNotReady from ex
+    except Exception as ex:
+        _LOGGER.error("Error setting up DD-WRT integration: %s", ex)
+        raise ConfigEntryNotReady from ex
 
     # Make sure there's a RDW entry in hass.data in case this is the first RDW entity
     if DOMAIN not in hass.data:
@@ -201,14 +220,7 @@ async def async_setup_entry(hass, config_entry):
         }
     })
 
-    for component in (COMPONENTS):
-        _LOGGER.debug("__init__::async_setup_entry adding router %s", config_entry.data.get(CONF_HOST))
-        hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(
-                config_entry,
-                component,
-            )
-        )
+    await hass.config_entries.async_forward_entry_setups(config_entry, COMPONENTS)
 
     async def async_track_time_interval_about_update(event_time):
         """Update the entity's about data and all it's components."""
