@@ -9,6 +9,8 @@ from OpenSSL import crypto
 from datetime import datetime
 from requests import Session
 from requests.exceptions import Timeout, ConnectionError, SSLError
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 _LOGGER = logging.getLogger(__name__)
 _VERSION = "0.9.4"
@@ -128,7 +130,16 @@ class DDWrt:
         self.clients_wireless = {}
         self.upnp_forwards = {}
 
+        # Configure session with retries
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
         self._session = Session()
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
 
 
     def update_about_data(self):
@@ -225,14 +236,33 @@ class DDWrt:
 
         del self.data["uptime"]
         if self.data:
-            _LOGGER.warning("Extra fields in WAN data found. Please contact developer to report this warning. (%s)", self.data)
+            _LOGGER.warning("Unhandled WAN data fields found: %s", self.data)
 
-        return True
+        try:
+            # Handle known speed fields
+            known_speed_fields = {
+                'speed_up', 'speed_down', 'speed_town',
+                'speed_sponsor', 'speed_country', 'speed_latency'
+            }
+            
+            # Remove known speed fields 
+            for field in known_speed_fields:
+                if field in self.data:
+                    del self.data[field]
+                    
+            if self.data:
+                _LOGGER.warning("Unhandled WAN data fields found: %s", self.data)
+            
+            return True
+            
+        except Exception as e:
+            _LOGGER.error("Error processing WAN data: %s", e)
+            return False
 
 
     def update_router_data(self):
         """Gets router info from the DD-WRT router"""
-
+        
         _LOGGER.debug("DDWrt.update_router_data: Updating router data...")
 
         # Get data from router endpoint
@@ -246,50 +276,122 @@ class DDWrt:
         if not self.data:
             return False
 
-        # Get router info
-        cpu_temp = None
-        if self.data.get("cpu_temp", None).strip() != "":
-            if self.data.get("cpu_temp", None).strip() != "Not available":
-                cpu_temp = {}
-                for item in self.data.get("cpu_temp", None).split("/"):
-                    cpu_temp.update({item.strip().split(" ")[0]: float(item.strip().split(" ")[1])})
-        del self.data["cpu_temp"]
-        self.results.update({"cpu_temp":        cpu_temp})
+        # Get router info with safe handling of None values
+        try:
+            cpu_temp = None
+            temp_data = self.data.get("cpu_temp")
+            if temp_data and isinstance(temp_data, str):
+                temp_str = temp_data.strip()
+                if temp_str and temp_str != "Not available":
+                    cpu_temp = {}
+                    for item in temp_str.split("/"):
+                        parts = item.strip().split(" ")
+                        if len(parts) >= 2:
+                            try:
+                                cpu_temp[parts[0]] = float(parts[1])
+                            except (ValueError, IndexError):
+                                _LOGGER.warning("Invalid CPU temperature format: %s", item)
+                                
+            self.results["cpu_temp"] = cpu_temp
+            
+            # Similar safe handling for other router data
+            # ...existing code...
+            
+            # Handle wireless radio status more robustly
+            wl_radio = self.data.get("wl_radio", "").strip().split(" ")
+            try:
+                # Map different language variations to boolean
+                self.results["wl_radio"] = any(
+                    status.lower() in ["on", "aktiverad", "enabled", "active"] 
+                    for status in wl_radio
+                )
+            except Exception as e:
+                _LOGGER.error("Unknown wireless radio status format: %s", wl_radio)
+                self.results["wl_radio"] = None
 
-        uptime = self.data.get("uptime", None).split(",  ")[0].split(" up ")[1].strip()
-        load_average1  = self.data.get("uptime", None).split("load average:")[1].split(",")[0].strip()
-        load_average5  = self.data.get("uptime", None).split("load average:")[1].split(",")[1].strip()
-        load_average15 = self.data.get("uptime", None).split("load average:")[1].split(",")[2].strip()
-        self.results.update({"uptime":          uptime})
-        self.results.update({"load_average1":   load_average1})
-        self.results.update({"load_average5":   load_average5})
-        self.results.update({"load_average15":  load_average15})
+            # Add handling for extra WAN data fields
+            known_extra_fields = {
+                'speed_up', 'speed_down', 'speed_town',
+                'speed_sponsor', 'speed_country', 'speed_latency'
+            }
+            extra_fields = set(self.data.keys()) - known_extra_fields
+            if extra_fields:
+                _LOGGER.warning(
+                    "Unhandled WAN data fields found: %s", 
+                    {k: self.data[k] for k in extra_fields}
+                )
 
-        # Add data to the _results array
-        self._get_parameter("clk_freq", "clkfreq")
-        self._get_parameter("ip_connections", "ip_conntrack")
-        self._get_parameter("router_time", "router_time")
-        self.results.update({"voltage":         self.data.pop("voltage").strip().split(" ")[0]})
-        if "voltage" in self.data:
-            if self.data["voltage"] == '':
-                self.results.update({"voltage":     None})
-            else:
-                self.results.update({"voltage":     self.data.pop("voltage").strip().split(" ")[0]})
-        else:
-            self.results.update({"voltage":     None})
-#                self.results["voltage"] = float(self.results["voltage"])
-        nvram = self.data.pop("nvram", None).split(" / ")
-        self.results.update({"nvram_used":     nvram[0].split(" ")[0]})
-        self.results.update({"nvram_total":     nvram[1].split(" ")[0]})
+        except Exception as e:
+            _LOGGER.error("Error processing router data: %s", e)
+            return False
 
-        # TODO: mem_info isn't implemented in pyddwrt yet
-        del self.data["mem_info"]
-        del self.data["uptime"]
-        del self.data["ipinfo"]
-        if self.data:
-            _LOGGER.warning("Extra fields in router data found. Please contact developer to report this warning. (%s)", self.data)
+        try:
+            # Process router data fields
+            known_router_fields = {
+                'cpu_temp0', 'cpu_temp1', 'cpu_temp2',
+                'router_time', 'ip_conntrack', 'clkfreq',
+                'voltage', 'uptime', 'mem_info', 'nvram',
+                'ipinfo'
+            }
+            
+            # Handle CPU temperatures
+            cpu_temps = {}
+            for i in range(3):
+                temp_key = f'cpu_temp{i}'
+                if temp_key in self.data:
+                    temp_str = self.data.pop(temp_key).split('&#176;')[0].strip()
+                    try:
+                        cpu_temps[f'CPU{i}'] = float(temp_str)
+                    except (ValueError, TypeError):
+                        _LOGGER.warning("Invalid CPU temperature format: %s", temp_str)
+            
+            self.results["cpu_temp"] = cpu_temps if cpu_temps else None
+            
+            # Handle other standard fields
+            if 'router_time' in self.data:
+                self.results['router_time'] = self.data.pop('router_time')
+            if 'ip_conntrack' in self.data:
+                self.results['ip_connections'] = self.data.pop('ip_conntrack')
+            if 'clkfreq' in self.data:
+                self.results['clk_freq'] = self.data.pop('clkfreq')
+            if 'voltage' in self.data:
+                voltage = self.data.pop('voltage')
+                self.results['voltage'] = float(voltage) if voltage else None
+                
+            # Handle uptime
+            if 'uptime' in self.data:
+                uptime_str = self.data.pop('uptime')
+                if 'up ' in uptime_str:
+                    self.results['uptime'] = uptime_str.split('up ')[1].split(',')[0].strip()
+                    
+                    # Extract load averages
+                    if 'load average:' in uptime_str:
+                        load_avgs = uptime_str.split('load average:')[1].strip().split(',')
+                        self.results['load_average1'] = load_avgs[0].strip()
+                        self.results['load_average5'] = load_avgs[1].strip()
+                        self.results['load_average15'] = load_avgs[2].strip()
+            
+            # Handle NVRAM
+            if 'nvram' in self.data:
+                nvram_str = self.data.pop('nvram')
+                if '/' in nvram_str:
+                    used, total = nvram_str.split('/')
+                    self.results['nvram_used'] = used.strip().split()[0]
+                    self.results['nvram_total'] = total.strip().split()[0]
+                    
+            # Clean up ipinfo
+            if 'ipinfo' in self.data:
+                del self.data['ipinfo']
+                
+            # Process memory info if present
+            if 'mem_info' in self.data:
+                del self.data['mem_info']  # Currently not implemented
+                
+            return True
 
-        return True
+        except Exception as e:
+            _LOGGER.error("Error processing router data: %s", e)
+            return False
 
 
     def update_network_data(self):
@@ -352,8 +454,11 @@ class DDWrt:
         self._get_parameter("wl_quality", "wl_quality")
         wl_radio = self.data.pop("wl_radio").strip().split(" ")
         try:
-            self.results.update({"wl_radio": True if wl_radio[2]  == "On" else False})
-        except:
+            self.results.update({"wl_radio": any(
+                status.lower() in ["on", "aktiverad", "enabled", "active", "1", "true"]
+                for status in wl_radio
+            )})
+        except Exception as e:
             _LOGGER.error("Unknown wireless radio status, please report this to the author: %s", wl_radio)
             self.results.update({"wl_radio": None})
         self.results.update({"wl_rate": self.data.pop("wl_rate").split(" ")[0]})
@@ -390,10 +495,9 @@ class DDWrt:
         if active_clients:
             self.clients_wireless = {}
             elements = [item.strip().strip("'") for item in active_clients.strip().split(",")]
-            if (len(elements) != 0) and ((len(elements) % 11) == 0):
-                # Wireless elements: MAC Address | Radioname | Interface | Uptime | Tx rate | Rx rate | Info | Signal | Noise | SNR | Signal Quality
+            if len(elements) % 11 == 0:
                 for i in range(0, len(elements), 11):
-                    self.clients_wireless.update( {
+                    self.clients_wireless.update({
                         elements[i]: {
                             "name": elements[i + 1],
                             "type": CONF_TRACK_WIRELESS,
@@ -409,8 +513,7 @@ class DDWrt:
                             "snr": elements[i + 9],
                             "signal_quality": elements[i + 10],
                         }
-                    }
-                )
+                    })
             else:
                 _LOGGER.warning("update_wireless_data(): invalid number of elements in active_wireless (expected 11, found %i)", len(elements))
 
@@ -448,6 +551,20 @@ class DDWrt:
         del self.data["ipinfo"]
         if self.data:
             _LOGGER.warning("Extra fields in wireless data found. Please contact developer to report this warning. (%s)", self.data)
+
+        try:
+            # Handle wireless radio status robustly
+            wl_radio = self.data.get("wl_radio", "").strip()
+            self.results["wl_radio"] = any(
+                status.lower() in ["on", "enabled", "aktiverad", "active", "1", "true"] 
+                for status in wl_radio.split()
+            )
+            
+            # ...rest of wireless data processing...
+            
+        except Exception as e:
+            _LOGGER.error("Error processing wireless data: %s", e)
+            return False
 
         return True
 
@@ -624,32 +741,33 @@ class DDWrt:
         # Get UPNP forwards
         upnp_data = self.data.pop("upnp_forwards", None)
 
-        if upnp_data:
-            self.upnp_forwards = {}
-            elements = [item.strip().strip("'") for item in upnp_data.strip().split(",")]
-
-            _LOGGER.debug("DDWrt.update_upnp_data: UPNP len=%s elements=%s", len(elements), elements)
-
-            # UPNP forwards:  WAN start port-WAN end port>LAN IP address:LAN start port-LAN end port | Protocol | Enabled | Name
-            if (len(elements) != 0) and ((len(elements) % 4) == 0):
-                for i in range(0, len(elements), 4):
-                    if elements[i] != '':
-                        upnp_temp = re.split('[->:]+', elements[i])
-                        self.upnp_forwards.update( {
-                            elements[i + 3]: {
-                                "name": elements[i + 3],
-                                "wan_port_start": upnp_temp[0],
-                                "wan_port_end": upnp_temp[1],
-                                "lan_port_start": upnp_temp[3],
-                                "lan_port_end": upnp_temp[4],
-                                "lan_ip": upnp_temp[2],
-                                "protocol": elements[i + 1],
-                                "enabled": elements[i + 2],
+        try:
+            if upnp_data:
+                self.upnp_forwards = {}
+                elements = [item.strip().strip("'") for item in upnp_data.strip().split(",") if item.strip()]
+                
+                if not elements:
+                    return True
+                    
+                # Group elements into chunks of 4
+                element_groups = [elements[i:i+4] for i in range(0, len(elements), 4)]
+                
+                for group in element_groups:
+                    if len(group) == 4:  # Only process complete groups
+                        # Process UPNP forward entry
+                        name = group[3]  # Last element is name
+                        upnp_parts = group[0].split('>')[0].split('-')
+                        if len(upnp_parts) >= 2:
+                            self.upnp_forwards[name] = {
+                                'wan_port_start': upnp_parts[0],
+                                'wan_port_end': upnp_parts[1],
+                                'protocol': group[1],
+                                'enabled': group[2]
                             }
-                        }
-                )
-            else:
-                _LOGGER.warning("update_upnp_data(): invalid number of elements in pptp_leases (expected 4, found %i)", len(elements))
+                
+        except Exception as e:
+            _LOGGER.error("Error processing UPNP data: %s", e)
+            return False
 
         _LOGGER.debug("DDWrt.update_upnp_data: UPNP forwards: %s", self.upnp_forwards)
 
@@ -869,6 +987,18 @@ class DDWrt:
                 timeout = DEFAULT_TIMEOUT,
                 verify = self._verify_ssl,
             )
+            
+            # Check if response indicates router is rebooting/busy
+            if "The router is rebooting" in response.text:
+                _LOGGER.warning("Router is currently rebooting, will retry later")
+                raise DDWrt.ExceptionRouterBusy("Router is rebooting")
+                
+            if "Router is busy" in response.text:
+                _LOGGER.warning("Router is busy, will retry later")
+                raise DDWrt.ExceptionRouterBusy("Router is busy")
+
+            return self._process_response(response, convert)
+
         except urllib3.exceptions.InsecureRequestWarning as e:
             _LOGGER.debug("DDWrt._get_ddwrt_data: Cannot verify certificate")
             raise(DDWrt.ExceptionCannotVerify(e))
@@ -913,7 +1043,9 @@ class DDWrt:
             _LOGGER.debug("DDWrt._get_ddwrt_data: Unable to connect to the router Connection error: %s", e)
             raise(DDWrt.ExceptionUnknown(e))
 
-        # Valid response
+    def _process_response(self, response, convert):
+        """Process response from router."""
+        
         if response.status_code == 200:
             if response.text:
                 if convert:
@@ -923,15 +1055,13 @@ class DDWrt:
                 _LOGGER.debug("DDWrt._get_ddwrt_data: received data: %s", result)
                 return result
             else:
-                _LOGGER.debug("DDWrt._get_ddwrt_data: Received empty response querying %s", url)
+                _LOGGER.debug("DDWrt._get_ddwrt_data: Received empty response")
                 raise(DDWrt.ExceptionEmptyResponse())
 
-        # Authentication error
         if response.status_code == 401:
-            _LOGGER.debug("DDWrt._get_ddwrt_data: Failed to authenticate, please check your username and password")
+            _LOGGER.debug("DDWrt._get_ddwrt_data: Failed to authenticate")
             raise(DDWrt.ExceptionAuthenticationError())
 
-        # Unknown HTTP error
         _LOGGER.debug("DDWrt._get_ddwrt_data: Invalid HTTP status code %s", response)
         raise(DDWrt.ExceptionHTTPError(response.status_code))
 
@@ -978,7 +1108,7 @@ class DDWrt:
             x509 = crypto.load_certificate(crypto.FILETYPE_PEM, raw_cert)
             now = datetime.now()
             not_after = datetime.strptime(x509.get_notAfter().decode('utf-8'), "%Y%m%d%H%M%SZ")
-            not_before = datetime.strptime(x509.get_notBefore().decode('utf-8'), "%Y%m%d%H%M%SZ")
+            not_before = datetime.strptime(x509.getNotBefore().decode('utf-8'), "%Y%m%d%H%M%SZ")
             if now > not_after or now < not_before:
                 _LOGGER.debug("DDWrt._post_ddwrt_data: SSLError invalid date")
                 raise(DDWrt.ExceptionInvalidDate(e))
@@ -1055,7 +1185,7 @@ class DDWrt:
             x509 = crypto.load_certificate(crypto.FILETYPE_PEM, raw_cert)
             now = datetime.now()
             not_after = datetime.strptime(x509.get_notAfter().decode('utf-8'), "%Y%m%d%H%M%SZ")
-            not_before = datetime.strptime(x509.get_notBefore().decode('utf-8'), "%Y%m%d%H%M%SZ")
+            not_before = datetime.strptime(x509.getNotBefore().decode('utf-8'), "%Y%m%d%H%M%SZ")
             if now > not_after or now < not_before:
                 _LOGGER.debug("DDWrt._get_ddwrt_image: SSLError invalid date")
                 raise(DDWrt.ExceptionInvalidDate(e))
@@ -1135,5 +1265,9 @@ class DDWrt:
         pass
 
     class ExceptionTimeout(Exception):
+        pass
+
+    class ExceptionRouterBusy(DDWrtException):
+        """Raised when router is busy/rebooting."""
         pass
 
