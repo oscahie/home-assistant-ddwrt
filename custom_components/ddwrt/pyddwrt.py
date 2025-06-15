@@ -190,7 +190,7 @@ class DDWrt:
     def update_wan_data(self):
         """Gets WAN info from the DD-WRT router"""
 
-        _LOGGER.debug("DDWrt.update_router_data: Updating WAN data...")
+        _LOGGER.debug("DDWrt.update_wan_data: Updating WAN data...")
 
         # Get data from internet endpoint
         url = f"{self._protocol}://{self._host}/{ENDPOINT_INTERNET}"
@@ -218,46 +218,73 @@ class DDWrt:
         self._get_parameter("wan_ipaddr", "wan_ipaddr")
         if "wan_ipv6addr" in self.data:
             self.results.update({"wan_ip6addr": self.data.pop("wan_ipv6addr")})
-            del self.data["ipinfo"]
+            if "ipinfo" in self.data:
+                del self.data["ipinfo"]
         else:
-            if "IPv6" in self.data.get("ipinfo", None):
+            if "ipinfo" in self.data and "IPv6" in self.data.get("ipinfo", ""):
                 self.results.update({"wan_ip6addr": self.data.pop("ipinfo").split("IPv6:")[1].strip()})
             else:
-                del self.data["ipinfo"]
+                if "ipinfo" in self.data:
+                    del self.data["ipinfo"]
                 self.results.update({"wan_ip6addr": None})
         self._get_parameter("wan_netmask", "wan_netmask")
         self._get_parameter("wan_pppoe_ac_name", "pppoe_ac_name")
         self._get_parameter("wan_proto", "wan_shortproto")
         self._get_parameter("wan_traffic_in", "ttraff_in")
         self._get_parameter("wan_traffic_out", "ttraff_out")
-        self.results.update({"wan_status": self.data.pop("wan_status").strip().split("&nbsp;")[0]})
-        self.results.update({"wan_connected": True if self.results["wan_status"]  == "Connected" else False})
+
+        # Parse WAN status with improved HTML handling
+        wan_status_raw = self.data.pop("wan_status").strip()
+        # Remove HTML tags and get the first meaningful word
+        if "<" in wan_status_raw:
+            # Extract status before any HTML tags
+            wan_status_text = wan_status_raw.split("<")[0].strip()
+        else:
+            wan_status_text = wan_status_raw.split("&nbsp;")[0].strip()
+
+        # Clean up HTML entities
+        wan_status_text = wan_status_text.replace("&nbsp;", " ").replace("&amp;", "&").strip()
+
+        # Determine connection status more intelligently
+        # Check if we have a valid WAN IP address (not just rely on status text)
+        wan_ip = self.results.get("wan_ipaddr", "")
+        has_valid_ip = wan_ip and "/" in wan_ip and not wan_ip.startswith("0.0.0.0")
+
+        if has_valid_ip:
+            # If we have a valid IP, we're probably connected despite what status says
+            self.results.update({"wan_connected": True})
+            if wan_status_text.lower() in ["error", "disconnected", "connecting"]:
+                _LOGGER.debug("WAN status shows '%s' but we have valid IP %s - correcting to 'Connected'",
+                            wan_status_text, wan_ip)
+                # Correct the status to reflect reality
+                self.results.update({"wan_status": "Connected"})
+            else:
+                self.results.update({"wan_status": wan_status_text})
+        else:
+            # No valid IP, use the status text as-is
+            self.results.update({"wan_status": wan_status_text})
+            self.results.update({"wan_connected": wan_status_text.lower() == "connected"})
+
         self.results.update({"wan_uptime": self.data.pop("wan_uptime").strip().split(",  ")[0]})
 
-        del self.data["uptime"]
+        # Clean up known standard fields that appear in all endpoints
+        if "uptime" in self.data:
+            del self.data["uptime"]
+
+        # Handle known speed test fields (these can be ignored for WAN status)
+        known_speed_fields = {
+            'speed_up', 'speed_down', 'speed_town',
+            'speed_sponsor', 'speed_country', 'speed_latency'
+        }
+        for field in known_speed_fields:
+            if field in self.data:
+                del self.data[field]
+
+        # Report any remaining unhandled fields
         if self.data:
             _LOGGER.warning("Unhandled WAN data fields found: %s", self.data)
 
-        try:
-            # Handle known speed fields
-            known_speed_fields = {
-                'speed_up', 'speed_down', 'speed_town',
-                'speed_sponsor', 'speed_country', 'speed_latency'
-            }
-
-            # Remove known speed fields
-            for field in known_speed_fields:
-                if field in self.data:
-                    del self.data[field]
-
-            if self.data:
-                _LOGGER.warning("Unhandled WAN data fields found: %s", self.data)
-
-            return True
-
-        except Exception as e:
-            _LOGGER.error("Error processing WAN data: %s", e)
-            return False
+        return True
 
 
     def update_router_data(self):
@@ -276,65 +303,31 @@ class DDWrt:
         if not self.data:
             return False
 
-        # Get router info with safe handling of None values
         try:
-            cpu_temp = None
-            temp_data = self.data.get("cpu_temp")
-            if temp_data and isinstance(temp_data, str):
-                temp_str = temp_data.strip()
+            # Handle CPU temperature data
+            cpu_temp_data = self.data.pop("cpu_temp", None)
+            if cpu_temp_data and isinstance(cpu_temp_data, str):
+                temp_str = cpu_temp_data.strip()
                 if temp_str and temp_str != "Not available":
+                    # Parse HTML-encoded temperature data
+                    # Example: "CPU 48.829 &#176;C / wlan1 56 &#176;C"
                     cpu_temp = {}
                     for item in temp_str.split("/"):
-                        parts = item.strip().split(" ")
+                        parts = item.strip().split()
                         if len(parts) >= 2:
                             try:
-                                cpu_temp[parts[0]] = float(parts[1])
+                                # Extract temperature value, removing HTML entities
+                                temp_value = parts[1].replace("&#176;C", "").replace("°C", "")
+                                cpu_temp[parts[0].strip()] = float(temp_value)
                             except (ValueError, IndexError):
                                 _LOGGER.warning("Invalid CPU temperature format: %s", item)
+                    self.results["cpu_temp"] = cpu_temp if cpu_temp else None
+                else:
+                    self.results["cpu_temp"] = None
+            else:
+                self.results["cpu_temp"] = None
 
-            self.results["cpu_temp"] = cpu_temp
-
-            # Similar safe handling for other router data
-            # ...existing code...
-
-            # Handle wireless radio status more robustly
-            wl_radio = self.data.get("wl_radio", "").strip().split(" ")
-            try:
-                # Map different language variations to boolean
-                self.results["wl_radio"] = any(
-                    status.lower() in ["on", "aktiverad", "enabled", "active"]
-                    for status in wl_radio
-                )
-            except Exception as e:
-                _LOGGER.error("Unknown wireless radio status format: %s", wl_radio)
-                self.results["wl_radio"] = None
-
-            # Add handling for extra WAN data fields
-            known_extra_fields = {
-                'speed_up', 'speed_down', 'speed_town',
-                'speed_sponsor', 'speed_country', 'speed_latency'
-            }
-            extra_fields = set(self.data.keys()) - known_extra_fields
-            if extra_fields:
-                _LOGGER.warning(
-                    "Unhandled WAN data fields found: %s",
-                    {k: self.data[k] for k in extra_fields}
-                )
-
-        except Exception as e:
-            _LOGGER.error("Error processing router data: %s", e)
-            return False
-
-        try:
-            # Process router data fields
-            known_router_fields = {
-                'cpu_temp0', 'cpu_temp1', 'cpu_temp2',
-                'router_time', 'ip_conntrack', 'clkfreq',
-                'voltage', 'uptime', 'mem_info', 'nvram',
-                'ipinfo'
-            }
-
-            # Handle CPU temperatures
+            # Handle individual CPU temperature fields (alternative format)
             cpu_temps = {}
             for i in range(3):
                 temp_key = f'cpu_temp{i}'
@@ -345,47 +338,78 @@ class DDWrt:
                     except (ValueError, TypeError):
                         _LOGGER.warning("Invalid CPU temperature format: %s", temp_str)
 
-            self.results["cpu_temp"] = cpu_temps if cpu_temps else None
+            # Use individual temps if main cpu_temp wasn't available
+            if not self.results.get("cpu_temp") and cpu_temps:
+                self.results["cpu_temp"] = cpu_temps
 
-            # Handle other standard fields
+            # Handle router time
             if 'router_time' in self.data:
                 self.results['router_time'] = self.data.pop('router_time')
+
+            # Handle IP connection tracking
             if 'ip_conntrack' in self.data:
                 self.results['ip_connections'] = self.data.pop('ip_conntrack')
+
+            # Handle clock frequency
             if 'clkfreq' in self.data:
                 self.results['clk_freq'] = self.data.pop('clkfreq')
+
+            # Handle voltage
             if 'voltage' in self.data:
                 voltage = self.data.pop('voltage')
-                self.results['voltage'] = float(voltage) if voltage else None
+                self.results['voltage'] = float(voltage) if voltage and voltage.strip() else None
 
-            # Handle uptime
+            # Handle uptime and load averages
             if 'uptime' in self.data:
                 uptime_str = self.data.pop('uptime')
                 if 'up ' in uptime_str:
-                    self.results['uptime'] = uptime_str.split('up ')[1].split(',')[0].strip()
+                    # Extract uptime portion
+                    uptime_part = uptime_str.split('up ')[1].split(',')[0].strip()
+                    self.results['uptime'] = uptime_part
 
                     # Extract load averages
                     if 'load average:' in uptime_str:
-                        load_avgs = uptime_str.split('load average:')[1].strip().split(',')
-                        self.results['load_average1'] = load_avgs[0].strip()
-                        self.results['load_average5'] = load_avgs[1].strip()
-                        self.results['load_average15'] = load_avgs[2].strip()
+                        load_str = uptime_str.split('load average:')[1].strip()
+                        load_avgs = [avg.strip() for avg in load_str.split(',')]
+                        if len(load_avgs) >= 3:
+                            self.results['load_average1'] = load_avgs[0]
+                            self.results['load_average5'] = load_avgs[1]
+                            self.results['load_average15'] = load_avgs[2]
 
-            # Handle NVRAM
+            # Handle NVRAM usage
             if 'nvram' in self.data:
                 nvram_str = self.data.pop('nvram')
                 if '/' in nvram_str:
-                    used, total = nvram_str.split('/')
-                    self.results['nvram_used'] = used.strip().split()[0]
-                    self.results['nvram_total'] = total.strip().split()[0]
+                    try:
+                        used, total = nvram_str.split('/')
+                        self.results['nvram_used'] = used.strip().split()[0]
+                        self.results['nvram_total'] = total.strip().split()[0]
+                    except (ValueError, IndexError):
+                        _LOGGER.warning("Invalid NVRAM format: %s", nvram_str)
 
-            # Clean up ipinfo
+            # Handle wireless radio status
+            if 'wl_radio' in self.data:
+                wl_radio = self.data.pop("wl_radio").strip().split(" ")
+                try:
+                    self.results["wl_radio"] = any(
+                        status.lower() in ["on", "aktiverad", "enabled", "active", "1", "true"]
+                        for status in wl_radio
+                    )
+                except Exception as e:
+                    _LOGGER.error("Unknown wireless radio status format: %s", wl_radio)
+                    self.results["wl_radio"] = None
+
+            # Clean up standard fields that appear in multiple endpoints
             if 'ipinfo' in self.data:
                 del self.data['ipinfo']
 
-            # Process memory info if present
+            # Handle memory info (large data, just remove for now)
             if 'mem_info' in self.data:
-                del self.data['mem_info']  # Currently not implemented
+                del self.data['mem_info']
+
+            # Report any remaining unhandled fields
+            if self.data:
+                _LOGGER.warning("Extra fields in router data found. Please contact developer to report this warning. (%s)", self.data)
 
             return True
 
