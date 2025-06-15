@@ -612,108 +612,36 @@ class DDWrt:
         # Get clients from ARP table
         active_clients = self.data.pop("arp_table", None)
         if active_clients:
-            elements = [item.strip().strip("'") for item in active_clients.strip().split(",")]
-
-            # ARP elements: Hostname | IP Address | MAC Address | Connections (| Interface)
+            self.clients_arp = self._parse_arp_table_robust(active_clients)
+        else:
             self.clients_arp = {}
-
-            # Check if this specific router returns the interface in the ARP list
-            if len(elements) % 4 == 0:
-                items_per_element = 4
-                interface = None
-            elif len(elements) % 5 == 0:
-                items_per_element = 5
-            else:
-                _LOGGER.warning("update_lan_data(): invalid number of elements in arp_table (expected 4 or 5, found %i)", len(elements))
-
-            for i in range(0, len(elements), items_per_element):
-                if items_per_element == 5:
-                    interface = elements[i + 4]
-
-                self.clients_arp.update( {
-                    elements[i + 2]: {
-                        "name": elements[i],
-                        "type": CONF_TRACK_ARP,
-                        "ip": elements[i + 1],
-                        "hostname": elements[i],
-                        "connections": elements[i + 3],
-                        "interface": interface
-                    }
-                }
-            )
 
         _LOGGER.debug("DDWrt.update_lan_data: ARP clients: %s", self.clients_arp)
 
         # Get clients from DHCP leases
         active_clients = self.data.pop("dhcp_leases", None)
         if active_clients:
+            self.clients_dhcp = self._parse_dhcp_leases_robust(active_clients)
+        else:
             self.clients_dhcp = {}
-            elements = [item.strip().strip("'") for item in active_clients.strip().split(",")]
-
-            # DHCP elements: Hostname | IP Address | MAC Address | Lease Expiration
-            if (len(elements) != 0) and ((len(elements) % 5) == 0):
-                for i in range(0, len(elements), 5):
-                    self.clients_dhcp.update( {
-                        elements[i + 2]: {
-                            "name": elements[i],
-                            "type": CONF_TRACK_DHCP,
-                            "ip": elements[i + 1],
-                            "hostname": elements[i],
-                            "lease_expiration": elements[i + 3]
-                        }
-                    }
-                )
-            else:
-                _LOGGER.warning("update_lan_data(): invalid number of elements in dhcp_leases (expected 5, found %i)", len(elements))
 
         _LOGGER.debug("DDWrt.update_lan_data: DHCP clients: %s", self.clients_dhcp)
 
         # Get clients from PPPoE leases
         active_clients = self.data.pop("pppoe_leases", None)
         if active_clients:
+            self.clients_pppoe = self._parse_pppoe_leases_robust(active_clients)
+        else:
             self.clients_pppoe = {}
-            elements = [item.strip().strip("'") for item in active_clients.strip().split(",")]
-
-            # PPPoE elements: Interface | Username | Local IP
-            if (len(elements) != 0) and ((len(elements) % 3) == 0):
-                for i in range(0, len(elements), 3):
-                    self.clients_pppoe.update( {
-                        elements[i + 2]: {
-                            "name": elements[i + 1],
-                            "type": CONF_TRACK_PPPOE,
-                            "interface": elements[i],
-                            "username": elements[i + 1],
-                            "local_ip": elements[i + 2]
-                       }
-                    }
-                )
-            else:
-                _LOGGER.warning("update_lan_data(): invalid number of elements in pppoe_leases (expected 3, found %i)", len(elements))
 
         _LOGGER.debug("DDWrt.update_lan_data: PPPoE clients: %s", self.clients_pppoe)
 
         # Get clients from PPTP leases
         active_clients = self.data.pop("pptp_leases", None)
         if active_clients:
+            self.clients_pptp = self._parse_pptp_leases_robust(active_clients)
+        else:
             self.clients_pptp = {}
-            elements = [item.strip().strip("'") for item in active_clients.strip().split(",")]
-
-            # PPTP elements: Interface | Username | Local IP | Remote IP
-            if (len(elements) != 0) and ((len(elements) % 4) == 0):
-                for i in range(0, len(elements), 4):
-                    self.clients_pptp.update( {
-                        elements[i + 2]: {
-                            "name": elements[i + 1],
-                            "type": CONF_TRACK_PPTP,
-                            "interface": elements[i],
-                            "username": elements[i + 1],
-                            "local_ip": elements[i + 2],
-                            "remote_ip": elements[i + 3]
-                        }
-                    }
-                 )
-            else:
-                _LOGGER.warning("update_lan_data(): invalid number of elements in pptp_leases (expected 4, found %i)", len(elements))
 
         _LOGGER.debug("DDWrt.update_lan_data: PPTP clients: %s", self.clients_pptp)
 
@@ -1303,6 +1231,227 @@ class DDWrt:
             _LOGGER.warning("No MAC address found in wireless client data")
 
         return clients_wireless
+
+    def _parse_dhcp_leases_robust(self, active_clients):
+        """
+        Smart DHCP lease parsing using IP addresses as anchor points
+        Strategy: Find IP addresses, then extract fields at known offsets relative to IP position
+        Returns a dictionary of DHCP clients
+        """
+        import re
+
+        if not active_clients:
+            return {}
+
+        # Parse the quoted CSV values properly using regex
+        # This handles commas within quoted values correctly
+        pattern = r"'([^']*?)'"
+        elements = re.findall(pattern, active_clients)
+
+        if not elements:
+            _LOGGER.warning("No quoted elements found in dhcp_leases data")
+            return {}
+
+        total_elements = len(elements)
+        _LOGGER.debug("Found %s properly parsed DHCP lease elements", total_elements)
+
+        # IP address pattern - matches standard IPv4 addresses
+        ip_pattern = re.compile(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+
+        clients_dhcp = {}
+        entry_count = 0
+
+        # Find all IP addresses and use them as anchors
+        for i, element in enumerate(elements):
+            if ip_pattern.match(element):
+                try:
+                    # IP found at position i, extract fields at known offsets
+                    ip = element                    # Current position
+                    hostname = elements[i - 1] if i >= 1 else ""      # IP - 1
+                    mac = elements[i + 1] if i + 1 < total_elements else ""       # IP + 1
+                    expiration = elements[i + 2] if i + 2 < total_elements else "" # IP + 2
+
+                    if mac and ip:  # Only add if we have essential fields
+                        clients_dhcp[mac] = {
+                            "name": hostname,
+                            "type": CONF_TRACK_DHCP,
+                            "ip": ip,
+                            "hostname": hostname,
+                            "lease_expiration": expiration
+                        }
+                        entry_count += 1
+                        _LOGGER.debug("DHCP Entry %s: hostname='%s', ip='%s', mac='%s', expiration='%s'",
+                                    entry_count, hostname, ip, mac, expiration)
+
+                except IndexError as e:
+                    _LOGGER.warning("Error parsing DHCP lease entry at IP position %s: %s", i, e)
+                    continue
+
+        _LOGGER.debug("Parsed %s DHCP lease entries using IP anchor method", entry_count)
+        return clients_dhcp
+
+    def _parse_pppoe_leases_robust(self, active_clients):
+        """
+        Smart PPPoE lease parsing that handles quoted CSV properly
+        Returns a dictionary of PPPoE clients
+        """
+        import re
+
+        if not active_clients:
+            return {}
+
+        # Parse the quoted CSV values properly using regex
+        pattern = r"'([^']*?)'"
+        elements = re.findall(pattern, active_clients)
+
+        if not elements:
+            _LOGGER.warning("No quoted elements found in pppoe_leases data")
+            return {}
+
+        total_elements = len(elements)
+        _LOGGER.debug("Found %s properly parsed PPPoE lease elements", total_elements)
+
+        # PPPoE leases expect 3 fields: Interface | Username | Local IP
+        if total_elements % 3 != 0:
+            _LOGGER.warning("PPPoE lease data doesn't divide evenly by 3. Total elements: %s", total_elements)
+            # Try to recover by truncating to nearest multiple of 3
+            total_elements = (total_elements // 3) * 3
+
+        clients_pppoe = {}
+
+        for i in range(0, total_elements, 3):
+            try:
+                interface = elements[i]
+                username = elements[i + 1]
+                local_ip = elements[i + 2]
+
+                if local_ip:  # Use local_ip as key
+                    clients_pppoe[local_ip] = {
+                        "name": username,
+                        "type": CONF_TRACK_PPPOE,
+                        "interface": interface,
+                        "username": username,
+                        "local_ip": local_ip
+                    }
+
+            except IndexError as e:
+                _LOGGER.warning("Error parsing PPPoE lease entry at index %s: %s", i, e)
+                continue
+
+        _LOGGER.debug("Parsed %s PPPoE lease entries", len(clients_pppoe))
+        return clients_pppoe
+
+    def _parse_pptp_leases_robust(self, active_clients):
+        """
+        Smart PPTP lease parsing that handles quoted CSV properly
+        Returns a dictionary of PPTP clients
+        """
+        import re
+
+        if not active_clients:
+            return {}
+
+        # Parse the quoted CSV values properly using regex
+        pattern = r"'([^']*?)'"
+        elements = re.findall(pattern, active_clients)
+
+        if not elements:
+            _LOGGER.warning("No quoted elements found in pptp_leases data")
+            return {}
+
+        total_elements = len(elements)
+        _LOGGER.debug("Found %s properly parsed PPTP lease elements", total_elements)
+
+        # PPTP leases expect 4 fields: Interface | Username | Local IP | Remote IP
+        if total_elements % 4 != 0:
+            _LOGGER.warning("PPTP lease data doesn't divide evenly by 4. Total elements: %s", total_elements)
+            # Try to recover by truncating to nearest multiple of 4
+            total_elements = (total_elements // 4) * 4
+
+        clients_pptp = {}
+
+        for i in range(0, total_elements, 4):
+            try:
+                interface = elements[i]
+                username = elements[i + 1]
+                local_ip = elements[i + 2]
+                remote_ip = elements[i + 3]
+
+                if local_ip:  # Use local_ip as key
+                    clients_pptp[local_ip] = {
+                        "name": username,
+                        "type": CONF_TRACK_PPTP,
+                        "interface": interface,
+                        "username": username,
+                        "local_ip": local_ip,
+                        "remote_ip": remote_ip
+                    }
+
+            except IndexError as e:
+                _LOGGER.warning("Error parsing PPTP lease entry at index %s: %s", i, e)
+                continue
+
+        _LOGGER.debug("Parsed %s PPTP lease entries", len(clients_pptp))
+        return clients_pptp
+
+    def _parse_arp_table_robust(self, active_clients):
+        """
+        Smart ARP table parsing using IP addresses as anchor points
+        Strategy: Find IP addresses, then extract fields at known offsets relative to IP position
+        Returns a dictionary of ARP clients
+        """
+        import re
+
+        if not active_clients:
+            return {}
+
+        # Parse the quoted CSV values properly using regex
+        pattern = r"'([^']*?)'"
+        elements = re.findall(pattern, active_clients)
+
+        if not elements:
+            _LOGGER.warning("No quoted elements found in arp_table data")
+            return {}
+
+        total_elements = len(elements)
+        _LOGGER.debug("Found %s properly parsed ARP table elements", total_elements)
+
+        # IP address pattern - matches standard IPv4 addresses
+        ip_pattern = re.compile(r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$')
+
+        clients_arp = {}
+        entry_count = 0
+
+        # Find all IP addresses and use them as anchors
+        for i, element in enumerate(elements):
+            if ip_pattern.match(element):
+                try:
+                    # IP found at position i, extract fields at known offsets
+                    ip = element                    # Current position
+                    hostname = elements[i - 1] if i >= 1 else ""      # IP - 1
+                    mac = elements[i + 1] if i + 1 < total_elements else ""       # IP + 1
+                    connections = elements[i + 2] if i + 2 < total_elements else "" # IP + 2
+                    interface = elements[i + 3] if i + 3 < total_elements else ""   # IP + 3
+
+                    if mac and ip:  # Only add if we have essential fields
+                        clients_arp[mac] = {
+                            "name": hostname,
+                            "type": CONF_TRACK_ARP,
+                            "ip": ip,
+                            "hostname": hostname,
+                            "connections": connections,
+                            "interface": interface
+                        }
+                        entry_count += 1
+                        _LOGGER.debug("ARP Entry %s: hostname='%s', ip='%s', mac='%s', connections='%s', interface='%s'",
+                                    entry_count, hostname, ip, mac, connections, interface)
+
+                except IndexError as e:
+                    _LOGGER.warning("Error parsing ARP entry at IP position %s: %s", i, e)
+                    continue
+
+        _LOGGER.debug("Parsed %s ARP entries using IP anchor method", entry_count)
+        return clients_arp
 
     def _get_parameter(self, py_parameter, router_parameter):
         if router_parameter in self.data:
