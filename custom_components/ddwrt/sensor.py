@@ -81,7 +81,6 @@ class DdwrtSensor(Entity):
             "model": self._api.results["router_model"],
             "name": self._routername,
             "sw_version": self._sw_version,
-            "via_device": (DOMAIN),
         }
         _LOGGER.debug("DdwrtSensor::device_info result=%s", result)
         return result
