@@ -2,7 +2,7 @@
 
 ## What is this?
 
-This is an enhanced fork of the [DD-WRT Home Assistant integration](https://github.com/bieniu/ha-ddwrt) that fixes critical parsing errors affecting device detection in newer DD-WRT firmware versions.
+This is an enhanced fork of the [DD-WRT Home Assistant integration](https://github.com/kimballen/home-assistant-ddwrt) that fixes critical parsing errors affecting device detection in newer DD-WRT firmware versions.
 
 ## Why this fork exists
 
