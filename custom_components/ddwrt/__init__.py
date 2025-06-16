@@ -197,7 +197,7 @@ async def async_setup_entry(hass, config_entry):
 
         # Add delay before next request
         await asyncio.sleep(1)
-            
+
         sensor_data = await router.async_update_sensor_data()
         if not sensor_data:
             _LOGGER.error("Failed to get sensor data")
@@ -311,6 +311,13 @@ class DDWrtEntity:
         # Clear the clients list of MAC addresses
         self.devices = {}
 
+        # Signal names for device updates
+        self.signal_device_new = f"{DOMAIN}_{self._host}_device_new"
+        self.signal_device_update = f"{DOMAIN}_{self._host}_device_update"
+
+        # Track listeners for cleanup
+        self.listeners = []
+
         # Initialize the DDWrt object
         self._router = DDWrt(
             aio_session = session,
@@ -414,6 +421,7 @@ class DDWrtEntity:
             self.results.update({key: value})
 
         # Update device tracker data
+        old_devices = set(self.devices.keys())
         self.devices = {}
         if self._track_arp:
             self.devices.update(self._router.clients_arp)
@@ -427,6 +435,15 @@ class DDWrtEntity:
             self.devices.update(self._router.clients_wds)
         if self._track_wireless:
             self.devices.update(self._router.clients_wireless)
+
+        # Notify device trackers of updates
+        new_devices = set(self.devices.keys())
+        if new_devices != old_devices:
+            _LOGGER.debug("Device list changed: old=%s, new=%s", old_devices, new_devices)
+            async_dispatcher_send(self._hass, self.signal_device_new)
+
+        # Always send update signal for existing devices
+        async_dispatcher_send(self._hass, self.signal_device_update)
 
         # Update traffic graphs
         self.results.update({

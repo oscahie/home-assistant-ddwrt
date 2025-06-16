@@ -263,11 +263,6 @@ class DDWrtTester:
             print(f"\n⚠️  {total_tests - passed_tests} test(s) failed")
             print("❌ Review the errors above before deploying to Home Assistant")
 
-        # Special note about the wireless fix
-        if self.test_results.get('wireless', False):
-            print("\n🎯 WIRELESS PARSING FIX STATUS: SUCCESS")
-            print("   The main error you reported should now be resolved!")
-
         print("\n" + "="*60)
 
 def main():
