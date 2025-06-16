@@ -85,6 +85,22 @@ interface = elements[i + 3]     # IP + 3
 - **Issue**: Router reports "error" status even when connected with valid IP
 - **Enhancement**: Intelligent status correction based on actual IP configuration
 
+### 5. Device Tracker Fixes
+- **Issue**: All devices showing as "Away" with "detected at unavailable" messages in Home Assistant
+- **Root Cause**: Device tracker was hardcoded to mark all devices as inactive (`self._active = False`)
+- **Solution**: Proper device state management based on ARP table presence
+
+#### Device Tracker Improvements
+- **Proper Connectivity Status**: Devices in ARP table now show as "Home" instead of "Away"
+- **Automatic Manufacturer Detection**: MAC OUI lookup for Apple, Linksys, Reolink, etc.
+- **Enhanced Device Properties**:
+  - IP addresses, hostnames, connection counts
+  - Network interface information (br0, wlan1, etc.)
+  - Connection type (Wired/Wireless)
+  - Last seen timestamps
+- **Smart Device Naming**: Uses hostnames when available, falls back to MAC addresses
+- **Real-time Updates**: Device state updates when router is polled
+
 ## Testing
 
 Enhanced test suite included (`test_integration.py`) with detailed device output:
@@ -114,6 +130,8 @@ LAN data retrieved successfully
 ## Files Modified
 
 - **`custom_components/ddwrt/pyddwrt.py`**: Enhanced parsing methods
+- **`custom_components/ddwrt/device_tracker.py`**: Fixed device connectivity status and enhanced properties
+- **`custom_components/ddwrt/__init__.py`**: Added device update signals and dispatcher logic
 - **`test_integration.py`**: Comprehensive testing suite
 
 ## Notes
