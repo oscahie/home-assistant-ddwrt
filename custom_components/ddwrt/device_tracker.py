@@ -30,7 +30,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the DD-WRT device tracker."""
 
     _LOGGER.debug("device_tracker::async_setup_entry start")
-    router = hass.data[DOMAIN][config_entry.unique_id]
+    router = hass.data[DOMAIN][config_entry.data[CONF_HOST]]['entity']
     tracked = set()
 
     @callback
