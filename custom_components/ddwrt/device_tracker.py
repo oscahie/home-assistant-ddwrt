@@ -110,12 +110,9 @@ class DdwrtDevice(ScannerEntity):
             # Try to determine manufacturer from MAC address
             self._manufacturer = self._get_manufacturer_from_mac(self._mac)
 
-            # Use hostname as model if available
-            hostname = device.get("hostname", "")
-            if hostname and hostname != "*":
-                self._model = hostname
 
             # Update friendly name if we have a hostname
+            hostname = device.get("hostname", "")
             if hostname and hostname != "*" and hostname != "":
                 self._friendly_name = hostname
             else:
