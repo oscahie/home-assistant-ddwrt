@@ -6,11 +6,11 @@ from datetime import timedelta
 from urllib.parse import urlparse
 
 from homeassistant import config_entries
-from homeassistant.components.ssdp import (
+from homeassistant.core import callback
+from homeassistant.helpers.service_info.ssdp import (
     ATTR_UPNP_MANUFACTURER_URL,
     ATTR_UPNP_PRESENTATION_URL,
 )
-from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -253,7 +253,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry):
         """Initialize options flow."""
         _LOGGER.debug("OptionsFlowHandler::__init__ called. config_entry.options=%s data=%s", config_entry.options, config_entry.data)
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Handle options flow."""
