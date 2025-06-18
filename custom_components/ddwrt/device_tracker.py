@@ -26,6 +26,14 @@ from . import (
 _LOGGER = logging.getLogger(__name__)
 
 
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
+    """Set up the DD-WRT device tracker platform (legacy support)."""
+    # This function is required for legacy device tracker support
+    # but since this integration uses config entries, we don't actually set up anything here
+    _LOGGER.debug("device_tracker::async_setup_platform called - using config entries instead")
+    return True
+
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up the DD-WRT device tracker."""
 
