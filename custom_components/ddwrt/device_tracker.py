@@ -192,8 +192,7 @@ class DdwrtDevice(ScannerEntity):
             "identifiers": {(DOMAIN, self.unique_id)},
             "manufacturer": self._manufacturer,
             "model": self._model,
-            "name": self._friendly_name,
-            "via_device": (DOMAIN, self._router._host),
+            "name": self._friendly_name
         }
         _LOGGER.debug("DdwrtDevice::device_info result=%s", result)
         return result
